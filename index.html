@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ringtone Trimmer</title>
+  <style>
+    :root {
+      --bg: #0f0e0c;
+      --surface: #1a1814;
+      --surface-2: #242019;
+      --border: #3a3428;
+      --text: #f5efe3;
+      --muted: #9a9080;
+      --accent: #ffcc00;
+      --accent-soft: rgba(255, 204, 0, 0.18);
+      --danger: #e05a4a;
+      --radius: 12px;
+      --font: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --handle-bar: #f5f5f7;
+      --handle-shadow: 0 2px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.28);
+      --handle-active-shadow: 0 0 0 2px rgba(255, 204, 0, 0.95), 0 6px 18px rgba(0, 0, 0, 0.55);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 3rem;
+    }
+
+    header { margin-bottom: 2rem; }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      color: var(--muted);
+      margin-top: 0.35rem;
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .drop-zone strong { color: var(--accent); }
+    .drop-zone input { display: none; }
+
+    .local-files {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+
+    .local-files.hidden { display: none; }
+
+    .chip {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.85rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .chip:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .editor.hidden { display: none; }
+
+    .file-name {
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      word-break: break-all;
+    }
+
+    .file-name span { color: var(--text); }
+
+    /* ── Apple-style trim editor ── */
+    .trim-editor {
+      margin-bottom: 1.25rem;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .wave-wrap {
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #141210;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+
+    #waveform {
+      min-height: 156px;
+      pointer-events: none;
+    }
+
+    #waveform wave {
+      overflow: visible !important;
+    }
+
+    .trim-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+    }
+
+    .trim-mask {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: rgba(8, 7, 6, 0.68);
+      pointer-events: none;
+      transition: width 0.05s linear, left 0.05s linear;
+    }
+
+    .trim-mask-left { left: 0; width: 0; }
+    .trim-mask-right { right: 0; width: 0; }
+
+    .trim-selection {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 30%;
+      border-top: 2px solid var(--accent);
+      border-bottom: 2px solid var(--accent);
+      background: rgba(255, 204, 0, 0.07);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+      cursor: grab;
+      touch-action: none;
+    }
+
+    .trim-selection.dragging { cursor: grabbing; }
+
+    .trim-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: ew-resize;
+      touch-action: none;
+      z-index: 4;
+    }
+
+    .trim-handle-start { left: 0; transform: translateX(-50%); }
+    .trim-handle-end { right: 0; transform: translateX(50%); left: auto; }
+
+    .handle-bar {
+      position: relative;
+      width: 7px;
+      height: 78%;
+      min-height: 96px;
+      max-height: 148px;
+      background: linear-gradient(180deg, #ffffff 0%, var(--handle-bar) 45%, #dedee3 100%);
+      border-radius: 5px;
+      box-shadow: var(--handle-shadow);
+      transition: transform 0.14s ease, box-shadow 0.14s ease, width 0.14s ease;
+    }
+
+    .handle-bar::before,
+    .handle-bar::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 2px;
+      height: 14px;
+      border-radius: 1px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .handle-bar::before { top: 22%; }
+    .handle-bar::after { bottom: 22%; }
+
+    .trim-handle:hover .handle-bar,
+    .trim-handle.active .handle-bar {
+      width: 9px;
+      box-shadow: var(--handle-active-shadow);
+    }
+
+    .handle-time {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #1a1204;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+      padding: 4px 9px;
+      border-radius: 7px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      font-variant-numeric: tabular-nums;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      transition: opacity 0.12s ease, transform 0.12s ease;
+    }
+
+    .trim-handle:hover .handle-time,
+    .trim-handle.active .handle-time,
+    .trim-overlay.show-badges .handle-time {
+      opacity: 1;
+      transform: translateX(-50%) translateY(-2px);
+    }
+
+    .playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      margin-left: -1px;
+      background: #fff;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 10px rgba(255, 255, 255, 0.45);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 5;
+      transition: opacity 0.15s;
+    }
+
+    .playhead.visible { opacity: 1; }
+
+    .playhead::before {
+      content: "";
+      position: absolute;
+      top: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+    }
+
+    .timeline-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 0.45rem;
+      padding: 0 2px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .trim-hint {
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 0.65rem;
+    }
+
+    .time-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 640px) {
+      .time-row { grid-template-columns: 1fr; }
+    }
+
+    label {
+      display: block;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .stepper-row {
+      display: grid;
+      grid-template-columns: 36px 1fr 36px;
+      gap: 0.35rem;
+      align-items: stretch;
+    }
+
+    .step-btn {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 1.1rem;
+      line-height: 1;
+      padding: 0;
+      min-height: 40px;
+    }
+
+    .step-btn:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 0.65rem;
+      min-height: 40px;
+    }
+
+    .field input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .field input:focus { outline: none; }
+
+    .field .unit {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-left: 0.25rem;
+    }
+
+    .selection-info {
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .selection-info strong {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+    }
+
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      transition: transform 0.1s, opacity 0.15s, background 0.15s;
+    }
+
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #1a1204;
+      font-weight: 600;
+      margin-left: auto;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: #ffe066; }
+
+    .status {
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      min-height: 1.25rem;
+    }
+
+    .status.error { color: var(--danger); }
+    .status.busy { color: var(--accent); }
+
+    .hint {
+      margin-top: 1.5rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .hint code {
+      background: var(--surface-2);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>Ringtone Trimmer</h1>
+      <p>Drag the white handles to set start and end, or move the whole selection.</p>
+    </header>
+
+    <div class="card" id="loadCard">
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept="audio/mpeg,audio/mp3,.mp3" />
+        <p><strong>Choose an MP3</strong> or drag it here</p>
+      </div>
+      <div class="local-files hidden" id="localFiles">
+        <span style="width:100%; text-align:center; color:var(--muted); font-size:0.82rem; margin-bottom:0.25rem;">Or pick from this folder:</span>
+      </div>
+    </div>
+
+    <div class="card editor hidden" id="editor">
+      <div class="file-name">File: <span id="fileName"></span></div>
+
+      <div class="trim-editor">
+        <div class="wave-wrap" id="waveWrap">
+          <div id="waveform"></div>
+          <div class="trim-overlay" id="trimOverlay">
+            <div class="trim-mask trim-mask-left" id="maskLeft"></div>
+            <div class="trim-selection" id="trimSelection">
+              <div class="trim-handle trim-handle-start" id="handleStart" role="slider" aria-label="Start time" aria-valuemin="0">
+                <div class="handle-bar"></div>
+                <div class="handle-time" id="startBadge">0:00.0</div>
+              </div>
+              <div class="trim-handle trim-handle-end" id="handleEnd" role="slider" aria-label="End time">
+                <div class="handle-bar"></div>
+                <div class="handle-time" id="endBadge">0:30.0</div>
+              </div>
+            </div>
+            <div class="trim-mask trim-mask-right" id="maskRight"></div>
+            <div class="playhead" id="playhead"></div>
+          </div>
+        </div>
+        <div class="timeline-labels">
+          <span id="labelStart">0:00</span>
+          <span id="labelSelection">Selected · 0:30</span>
+          <span id="labelEnd">0:00</span>
+        </div>
+        <p class="trim-hint">Pull the side bars to trim · drag the yellow band to slide the clip</p>
+      </div>
+
+      <div class="time-row">
+        <div>
+          <label for="startInput">Start</label>
+          <div class="stepper-row">
+            <button type="button" class="step-btn" id="startDown" title="Back 0.1s">−</button>
+            <div class="field">
+              <input type="text" id="startInput" inputmode="decimal" placeholder="0:00.0" />
+            </div>
+            <button type="button" class="step-btn" id="startUp" title="Forward 0.1s">+</button>
+          </div>
+        </div>
+        <div>
+          <label for="endInput">End</label>
+          <div class="stepper-row">
+            <button type="button" class="step-btn" id="endDown" title="Back 0.1s">−</button>
+            <div class="field">
+              <input type="text" id="endInput" inputmode="decimal" placeholder="0:30.0" />
+            </div>
+            <button type="button" class="step-btn" id="endUp" title="Forward 0.1s">+</button>
+          </div>
+        </div>
+        <div>
+          <label for="downloadName">Download as</label>
+          <div class="field">
+            <input type="text" id="downloadName" />
+            <span class="unit">.mp3</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="selection-info">
+        Clip length: <strong id="selectionDuration">0:00</strong>
+        &nbsp;·&nbsp;
+        Full track: <strong id="totalDuration">0:00</strong>
+      </div>
+
+      <div class="controls">
+        <button type="button" class="btn-secondary" id="playFullBtn">Play full</button>
+        <button type="button" class="btn-secondary" id="playSelectionBtn">Play selection</button>
+        <button type="button" class="btn-secondary" id="resetBtn">Reset to 30s</button>
+        <button type="button" class="btn-primary" id="downloadBtn">Download trimmed MP3</button>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <p class="hint">
+      Run <code>python3 -m http.server 8765</code> in the project folder and open
+      <code>http://localhost:8765/</code>. Add MP3s to <code>samples/</code> for quick-load chips.
+    </p>
+  </div>
+
+  <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+  <script>
+    const MIN_CLIP = 0.5;
+    const STEP = 0.1;
+
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("fileInput");
+    const localFiles = document.getElementById("localFiles");
+    const editor = document.getElementById("editor");
+    const fileNameEl = document.getElementById("fileName");
+    const startInput = document.getElementById("startInput");
+    const endInput = document.getElementById("endInput");
+    const downloadName = document.getElementById("downloadName");
+    const selectionDurationEl = document.getElementById("selectionDuration");
+    const totalDurationEl = document.getElementById("totalDuration");
+    const statusEl = document.getElementById("status");
+    const downloadBtn = document.getElementById("downloadBtn");
+
+    const waveWrap = document.getElementById("waveWrap");
+    const trimOverlay = document.getElementById("trimOverlay");
+    const trimSelection = document.getElementById("trimSelection");
+    const handleStart = document.getElementById("handleStart");
+    const handleEnd = document.getElementById("handleEnd");
+    const maskLeft = document.getElementById("maskLeft");
+    const maskRight = document.getElementById("maskRight");
+    const startBadge = document.getElementById("startBadge");
+    const endBadge = document.getElementById("endBadge");
+    const playhead = document.getElementById("playhead");
+    const labelStart = document.getElementById("labelStart");
+    const labelEnd = document.getElementById("labelEnd");
+    const labelSelection = document.getElementById("labelSelection");
+
+    let wavesurfer = null;
+    let currentArrayBuffer = null;
+    let duration = 0;
+    let selection = { start: 0, end: 30 };
+    let syncingFromInputs = false;
+
+    function formatTime(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return "0:00.0";
+      const mins = Math.floor(seconds / 60);
+      const secs = (seconds % 60).toFixed(1);
+      if (mins > 0) return `${mins}:${secs.padStart(4, "0")}`;
+      return `0:${secs.padStart(4, "0")}`;
+    }
+
+    function parseTime(value) {
+      const trimmed = String(value).trim();
+      if (!trimmed) return NaN;
+      if (trimmed.includes(":")) {
+        const [m, s] = trimmed.split(":");
+        return Number(m) * 60 + Number(s);
+      }
+      return Number(trimmed);
+    }
+
+    function setStatus(message, type = "") {
+      statusEl.textContent = message;
+      statusEl.className = "status" + (type ? ` ${type}` : "");
+    }
+
+    function clampSelection(start, end, total) {
+      let s = Math.max(0, Math.min(start, total));
+      let e = Math.max(0, Math.min(end, total));
+      if (e - s < MIN_CLIP) {
+        if (s + MIN_CLIP <= total) e = s + MIN_CLIP;
+        else s = Math.max(0, e - MIN_CLIP);
+      }
+      return { start: s, end: e };
+    }
+
+    function timeToPct(time) {
+      if (!duration) return 0;
+      return (time / duration) * 100;
+    }
+
+    function pctToTime(pct) {
+      return (pct / 100) * duration;
+    }
+
+    function clientXToTime(clientX) {
+      const rect = waveWrap.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+      return pctToTime(pct);
+    }
+
+    function renderSelection() {
+      if (!duration) return;
+
+      const startPct = timeToPct(selection.start);
+      const endPct = timeToPct(selection.end);
+      const widthPct = endPct - startPct;
+
+      trimSelection.style.left = startPct + "%";
+      trimSelection.style.width = widthPct + "%";
+      maskLeft.style.width = startPct + "%";
+      maskRight.style.width = (100 - endPct) + "%";
+
+      startBadge.textContent = formatTime(selection.start);
+      endBadge.textContent = formatTime(selection.end);
+      handleStart.setAttribute("aria-valuenow", selection.start.toFixed(1));
+      handleStart.setAttribute("aria-valuemax", selection.end.toFixed(1));
+      handleEnd.setAttribute("aria-valuenow", selection.end.toFixed(1));
+      handleEnd.setAttribute("aria-valuemin", selection.start.toFixed(1));
+
+      labelStart.textContent = "0:00";
+      labelEnd.textContent = formatTime(duration);
+      labelSelection.textContent = `Selected · ${formatTime(selection.end - selection.start)}`;
+
+      syncingFromInputs = true;
+      startInput.value = formatTime(selection.start);
+      endInput.value = formatTime(selection.end);
+      syncingFromInputs = false;
+
+      selectionDurationEl.textContent = formatTime(selection.end - selection.start);
+      totalDurationEl.textContent = formatTime(duration);
+    }
+
+    function setSelection(start, end, showBadges = false) {
+      selection = clampSelection(start, end, duration);
+      renderSelection();
+      trimOverlay.classList.toggle("show-badges", showBadges);
+    }
+
+    function nudge(which, delta) {
+      if (!duration) return;
+      if (which === "start") {
+        setSelection(selection.start + delta, selection.end, true);
+      } else {
+        setSelection(selection.start, selection.end + delta, true);
+      }
+    }
+
+    function setupDrag() {
+      let dragMode = null;
+      let dragStartX = 0;
+      let origStart = 0;
+      let origEnd = 0;
+
+      function onPointerDown(e, mode) {
+        if (!duration) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dragMode = mode;
+        dragStartX = e.clientX;
+        origStart = selection.start;
+        origEnd = selection.end;
+
+        if (mode === "start") handleStart.classList.add("active");
+        if (mode === "end") handleEnd.classList.add("active");
+        if (mode === "move") trimSelection.classList.add("dragging");
+        trimOverlay.classList.add("show-badges");
+      }
+
+      function onPointerMove(e) {
+        if (!dragMode) return;
+
+        const rect = waveWrap.getBoundingClientRect();
+        const deltaTime = ((e.clientX - dragStartX) / rect.width) * duration;
+
+        if (dragMode === "start") {
+          setSelection(origStart + deltaTime, origEnd, true);
+        } else if (dragMode === "end") {
+          setSelection(origStart, origEnd + deltaTime, true);
+        } else if (dragMode === "move") {
+          const len = origEnd - origStart;
+          let nextStart = origStart + deltaTime;
+          nextStart = Math.max(0, Math.min(nextStart, duration - len));
+          setSelection(nextStart, nextStart + len, true);
+        }
+      }
+
+      function onPointerUp(e) {
+        if (!dragMode) return;
+        handleStart.classList.remove("active");
+        handleEnd.classList.remove("active");
+        trimSelection.classList.remove("dragging");
+        trimOverlay.classList.remove("show-badges");
+        dragMode = null;
+        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+
+      handleStart.addEventListener("pointerdown", (e) => onPointerDown(e, "start"));
+      handleEnd.addEventListener("pointerdown", (e) => onPointerDown(e, "end"));
+      trimSelection.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".trim-handle")) return;
+        onPointerDown(e, "move");
+      });
+
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+    }
+
+    function updatePlayhead(time) {
+      if (!duration) return;
+      playhead.style.left = timeToPct(time) + "%";
+    }
+
+    function destroyWaveSurfer() {
+      if (wavesurfer) {
+        wavesurfer.destroy();
+        wavesurfer = null;
+      }
+      duration = 0;
+      playhead.classList.remove("visible");
+    }
+
+    async function loadFromArrayBuffer(arrayBuffer, name) {
+      destroyWaveSurfer();
+      currentArrayBuffer = arrayBuffer.slice(0);
+      fileNameEl.textContent = name;
+      downloadName.value = name.replace(/\.mp3$/i, "") + "_ringtone";
+
+      wavesurfer = WaveSurfer.create({
+        container: "#waveform",
+        waveColor: "#4a4338",
+        progressColor: "#ffcc00",
+        cursorWidth: 0,
+        height: 156,
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        normalize: true,
+        interact: false,
+      });
+
+      wavesurfer.on("ready", () => {
+        duration = wavesurfer.getDuration();
+        const end = Math.min(30, duration);
+        selection = { start: 0, end };
+        renderSelection();
+        editor.classList.remove("hidden");
+        setStatus("Drag the white bars on each side to trim your ringtone.");
+      });
+
+      wavesurfer.on("timeupdate", (t) => {
+        updatePlayhead(t);
+        playhead.classList.add("visible");
+      });
+
+      wavesurfer.on("pause", () => playhead.classList.remove("visible"));
+      wavesurfer.on("finish", () => playhead.classList.remove("visible"));
+
+      wavesurfer.on("error", (err) => setStatus("Could not load audio: " + err, "error"));
+
+      window.addEventListener("resize", renderSelection);
+      await wavesurfer.loadBlob(new Blob([currentArrayBuffer], { type: "audio/mpeg" }));
+    }
+
+    async function loadFile(file) {
+      if (!file || !/\.mp3$/i.test(file.name)) {
+        setStatus("Please choose an MP3 file.", "error");
+        return;
+      }
+      setStatus("Loading…", "busy");
+      try {
+        await loadFromArrayBuffer(await file.arrayBuffer(), file.name);
+      } catch (err) {
+        setStatus("Failed to load file: " + err.message, "error");
+      }
+    }
+
+    async function loadUrl(url, label) {
+      setStatus("Loading " + label + "…", "busy");
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await loadFromArrayBuffer(await res.arrayBuffer(), label);
+      } catch (err) {
+        setStatus("Could not load " + label + ": " + err.message, "error");
+      }
+    }
+
+    function floatTo16BitPCM(float32Array) {
+      const out = new Int16Array(float32Array.length);
+      for (let i = 0; i < float32Array.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Array[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      return out;
+    }
+
+    async function trimToMp3(arrayBuffer, startSec, endSec) {
+      const audioContext = new AudioContext();
+      const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+      await audioContext.close();
+
+      const sampleRate = decoded.sampleRate;
+      const channels = decoded.numberOfChannels;
+      const startSample = Math.floor(startSec * sampleRate);
+      const endSample = Math.floor(endSec * sampleRate);
+      const length = Math.max(1, endSample - startSample);
+
+      const left = decoded.getChannelData(0).subarray(startSample, endSample);
+      const right = channels > 1
+        ? decoded.getChannelData(1).subarray(startSample, endSample)
+        : left;
+
+      const left16 = floatTo16BitPCM(left);
+      const right16 = channels > 1 ? floatTo16BitPCM(right) : left16;
+
+      const encoder = new lamejs.Mp3Encoder(channels, sampleRate, 192);
+      const blockSize = 1152;
+      const mp3Data = [];
+
+      for (let i = 0; i < length; i += blockSize) {
+        const leftChunk = left16.subarray(i, i + blockSize);
+        let mp3buf;
+        if (channels === 1) {
+          mp3buf = encoder.encodeBuffer(leftChunk);
+        } else {
+          mp3buf = encoder.encodeBuffer(leftChunk, right16.subarray(i, i + blockSize));
+        }
+        if (mp3buf.length > 0) mp3Data.push(mp3buf);
+      }
+
+      const tail = encoder.flush();
+      if (tail.length > 0) mp3Data.push(tail);
+
+      return new Blob(mp3Data, { type: "audio/mpeg" });
+    }
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function applyInputs() {
+      if (!duration || syncingFromInputs) return;
+      let start = parseTime(startInput.value);
+      let end = parseTime(endInput.value);
+      if (Number.isNaN(start)) start = selection.start;
+      if (Number.isNaN(end)) end = selection.end;
+      setSelection(start, end, true);
+    }
+
+    async function setupLocalFiles() {
+      let files = [];
+      try {
+        const res = await fetch("samples/manifest.json");
+        if (res.ok) files = await res.json();
+      } catch (_) {}
+
+      const available = [];
+      for (const name of files) {
+        const path = `samples/${name}`;
+        try {
+          const res = await fetch(path, { method: "HEAD" });
+          if (res.ok) available.push({ path, label: name });
+        } catch (_) {}
+      }
+      if (!available.length) return;
+
+      localFiles.classList.remove("hidden");
+      for (const { path, label } of available) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip";
+        btn.textContent = label;
+        btn.addEventListener("click", () => loadUrl(path, label));
+        localFiles.appendChild(btn);
+      }
+    }
+
+    dropZone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files[0]) loadFile(fileInput.files[0]);
+    });
+
+    ["dragenter", "dragover"].forEach((evt) => {
+      dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropZone.classList.add("dragover");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((evt) => {
+      dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("dragover");
+      });
+    });
+
+    dropZone.addEventListener("drop", (e) => {
+      const file = e.dataTransfer.files[0];
+      if (file) loadFile(file);
+    });
+
+    startInput.addEventListener("change", applyInputs);
+    endInput.addEventListener("change", applyInputs);
+    startInput.addEventListener("keydown", (e) => { if (e.key === "Enter") applyInputs(); });
+    endInput.addEventListener("keydown", (e) => { if (e.key === "Enter") applyInputs(); });
+
+    document.getElementById("startDown").addEventListener("click", () => nudge("start", -STEP));
+    document.getElementById("startUp").addEventListener("click", () => nudge("start", STEP));
+    document.getElementById("endDown").addEventListener("click", () => nudge("end", -STEP));
+    document.getElementById("endUp").addEventListener("click", () => nudge("end", STEP));
+
+    document.getElementById("playFullBtn").addEventListener("click", () => wavesurfer?.play());
+    document.getElementById("playSelectionBtn").addEventListener("click", () => {
+      if (!wavesurfer) return;
+      wavesurfer.play(selection.start, selection.end);
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      if (!duration) return;
+      setSelection(0, Math.min(30, duration), true);
+    });
+
+    downloadBtn.addEventListener("click", async () => {
+      if (!currentArrayBuffer || !duration) return;
+      applyInputs();
+
+      const { start, end } = selection;
+      const baseName = (downloadName.value || "ringtone").replace(/[^\w\-.\s]/g, "").trim() || "ringtone";
+
+      downloadBtn.disabled = true;
+      setStatus("Encoding trimmed MP3…", "busy");
+
+      try {
+        downloadBlob(await trimToMp3(currentArrayBuffer, start, end), baseName + ".mp3");
+        setStatus(`Saved ${baseName}.mp3 (${formatTime(end - start)}).`);
+      } catch (err) {
+        setStatus("Export failed: " + err.message, "error");
+      } finally {
+        downloadBtn.disabled = false;
+      }
+    });
+
+    setupDrag();
+    setupLocalFiles();
+  </script>
+</body>
+</html>
